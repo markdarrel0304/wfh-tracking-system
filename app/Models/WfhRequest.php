@@ -2,7 +2,11 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WfhRequest extends Model
 {
@@ -15,6 +19,7 @@ class WfhRequest extends Model
         'end_time',
         'reason',
         'supporting_document',
+        'reviewer_document',
         'status',
         'approver_id',
         'approved_at',
@@ -27,18 +32,28 @@ class WfhRequest extends Model
         'approved_at' => 'datetime',
     ];
 
-    public function employee()
+    public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
     }
 
-    public function approver()
+    public function approver(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'approver_id');
     }
 
-    public function approverUser()
+    public function approverUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approver_id');
+    }
+
+    public function scopeApprovedOn(Builder $query, CarbonInterface|string|null $date = null): Builder
+    {
+        $workday = $date ? Carbon::parse($date) : today();
+
+        return $query
+            ->where('status', 'approved')
+            ->whereDate('date_from', '<=', $workday)
+            ->whereDate('date_to', '>=', $workday);
     }
 }

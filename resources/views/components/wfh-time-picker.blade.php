@@ -1,4 +1,4 @@
-@props(['name', 'value' => null, 'required' => false])
+@props(['name', 'value' => null, 'required' => false, 'dropdownAlignment' => 'right'])
 
 @php
     $time = $value ? \Carbon\Carbon::parse($value) : null;
@@ -14,12 +14,12 @@
         <input type="text" value="{{ $displayValue }}" {{ $required ? 'required' : '' }} readonly placeholder="Select time" class="time-input block w-full cursor-pointer rounded-lg border-slate-300 py-3 pl-4 pr-10 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500">
         <span class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">◷</span>
     </div>
-    <div class="time-dropdown absolute z-[999999] mt-2 hidden w-full min-w-64 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
+    <div class="time-dropdown absolute {{ $dropdownAlignment === 'left' ? 'left-0' : 'right-0' }} z-50 mt-2 hidden w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
         <p class="text-sm font-semibold text-slate-800">Select time</p>
         <div class="mt-4 grid grid-cols-3 gap-3">
-            <label class="text-xs font-medium text-slate-600">Hour<select class="time-hour mt-1 block w-full rounded-lg border-slate-300 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">@foreach (range(1, 12) as $option)<option value="{{ $option }}" @selected((string) $option === $hour)>{{ $option }}</option>@endforeach</select></label>
-            <label class="text-xs font-medium text-slate-600">Minute<select class="time-minute mt-1 block w-full rounded-lg border-slate-300 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">@foreach (['00', '15', '30', '45'] as $option)<option value="{{ $option }}" @selected($option === $minute)>{{ $option }}</option>@endforeach</select></label>
-            <label class="text-xs font-medium text-slate-600">Period<select class="time-period mt-1 block w-full rounded-lg border-slate-300 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"><option value="AM" @selected($period === 'AM')>AM</option><option value="PM" @selected($period === 'PM')>PM</option></select></label>
+            <label class="min-w-0 text-xs font-medium text-slate-600">Hour<select class="time-hour mt-1 block w-full rounded-lg border-slate-300 px-2 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">@foreach (range(1, 12) as $option)<option value="{{ $option }}" @selected((string) $option === $hour)>{{ $option }}</option>@endforeach</select></label>
+            <label class="min-w-0 text-xs font-medium text-slate-600">Minute<select class="time-minute mt-1 block w-full rounded-lg border-slate-300 px-2 py-2 text-sm focus:border-blue-500 focus:ring-blue-500">@foreach (['00', '15', '30', '45'] as $option)<option value="{{ $option }}" @selected($option === $minute)>{{ $option }}</option>@endforeach</select></label>
+            <label class="min-w-0 text-xs font-medium text-slate-600">Period<select class="time-period mt-1 block w-full rounded-lg border-slate-300 px-2 py-2 text-sm focus:border-blue-500 focus:ring-blue-500"><option value="AM" @selected($period === 'AM')>AM</option><option value="PM" @selected($period === 'PM')>PM</option></select></label>
         </div>
         <div class="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4"><button type="button" class="time-cancel rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Cancel</button><button type="button" class="time-apply rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Apply</button></div>
     </div>
@@ -40,9 +40,32 @@
             const minute = picker.querySelector('.time-minute');
             const period = picker.querySelector('.time-period');
 
+            const openDropdown = function () {
+                document.querySelectorAll('.wfh-time-picker .time-dropdown').forEach(function (otherDropdown) {
+                    if (otherDropdown !== dropdown) {
+                        otherDropdown.classList.add('hidden');
+                    }
+                });
+
+                dropdown.classList.remove('hidden', 'bottom-full', 'mb-2');
+                dropdown.classList.add('mt-2');
+
+                if (dropdown.getBoundingClientRect().bottom > window.innerHeight - 16) {
+                    dropdown.classList.remove('mt-2');
+                    dropdown.classList.add('bottom-full', 'mb-2');
+                }
+            };
+
             input.addEventListener('click', function (event) {
                 event.stopPropagation();
-                dropdown.classList.toggle('hidden');
+
+                if (dropdown.classList.contains('hidden')) {
+                    openDropdown();
+
+                    return;
+                }
+
+                dropdown.classList.add('hidden');
             });
 
             const saveTime = function () {

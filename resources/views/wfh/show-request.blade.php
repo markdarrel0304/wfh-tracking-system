@@ -62,7 +62,7 @@
             @if ($wfhRequest->supporting_document)
             <div class="mt-6">
                 <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Supporting Document</p>
-                <a href="{{ asset('storage/' . $wfhRequest->supporting_document) }}" target="_blank" class="text-sm text-blue-600 hover:text-blue-800 mt-1 inline-flex items-center gap-1">
+                <a href="{{ route('wfh.requests.supporting-document', $wfhRequest) }}" class="text-sm text-blue-600 hover:text-blue-800 mt-1 inline-flex items-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
@@ -79,11 +79,34 @@
             </div>
             @endif
 
-            @if ($wfhRequest->status === 'rejected' && $wfhRequest->remarks)
-            <div class="mt-6 pt-6 border-t border-slate-200">
-                <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Rejection Reason</p>
-                <p class="text-sm text-slate-700 mt-1">{{ $wfhRequest->remarks }}</p>
+            @if ($wfhRequest->status === 'rejected' && ($wfhRequest->remarks || $wfhRequest->reviewer_document))
+            <div class="mt-6 grid gap-6 border-t border-slate-200 pt-6 lg:grid-cols-2">
+                @if ($wfhRequest->remarks)
+                    <div class="border border-rose-200 bg-rose-50 p-5">
+                        <div class="flex gap-4">
+                            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700">!</span>
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold uppercase tracking-wider text-rose-700">Rejection reason</p>
+                                <p class="mt-2 text-sm leading-6 text-slate-700">{{ $wfhRequest->remarks }}</p>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
+                @if ($wfhRequest->reviewer_document)
+                    <div class="border border-blue-200 bg-blue-50 p-5">
+                        <p class="text-xs font-semibold uppercase tracking-wider text-blue-700">Reviewer supporting document</p>
+                        <a href="{{ route('wfh.requests.reviewer-document', $wfhRequest) }}" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:text-blue-900">
+                            Download reviewer document
+                        </a>
+                    </div>
+                @endif
             </div>
+            @elseif ($wfhRequest->reviewer_document)
+                <div class="mt-6 border-t border-slate-200 pt-6">
+                    <p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Reviewer Supporting Document</p>
+                    <a href="{{ route('wfh.requests.reviewer-document', $wfhRequest) }}" class="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800">Download reviewer document</a>
+                </div>
             @endif
         </div>
     </div>

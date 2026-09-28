@@ -2,12 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\AuditLogger;
+use App\Models\User;
 use App\Models\WfhRequest;
+use App\Notifications\WfhRequestReviewed;
+use App\Notifications\WfhRequestSubmitted;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WfhRequestController extends Controller
 {
@@ -50,6 +56,8 @@ class WfhRequestController extends Controller
 
     public function create(): View
     {
+        Gate::authorize('create', WfhRequest::class);
+
         $employee = auth()->user()->employee;
         if (! $employee) {
             abort(404, 'Employee profile not found');
@@ -107,24 +115,38 @@ class WfhRequestController extends Controller
         return view('wfh.create-request', compact('employee', 'year', 'month', 'calendarDays'));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
+        Gate::authorize('create', WfhRequest::class);
+
         $employee = auth()->user()->employee;
         if (! $employee) {
             abort(404, 'Employee profile not found');
         }
 
-        $request->validate([
-            'request_type' => 'required|string|max:255',
-            'date_from' => 'required|date',
-            'date_to' => 'required|date|after_or_equal:date_from',
-            'start_time' => 'required',
-            'end_time' => 'required|after:start_time',
-            'reason' => 'required|string|max:500',
-            'supporting_document' => 'nullable|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:2048',
+        $data = $request->validate([
+            'request_type' => ['required', 'string', 'max:255'],
+            'date_from' => ['required', 'date'],
+            'date_to' => ['required', 'date', 'after_or_equal:date_from'],
+            'start_time' => ['required'],
+            'end_time' => ['required', 'after:start_time'],
+            'reason' => ['required', 'string', 'max:500'],
+            'supporting_document' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:2048'],
         ]);
 
-        $data = $request->except('supporting_document');
+        $hasOverlappingRequest = $employee->wfhRequests()
+            ->whereIn('status', ['pending', 'approved'])
+            ->whereDate('date_from', '<=', $data['date_to'])
+            ->whereDate('date_to', '>=', $data['date_from'])
+            ->exists();
+
+        if ($hasOverlappingRequest) {
+            return back()
+                ->withInput()
+                ->withErrors(['date_from' => 'You already have a pending or approved WFH request that overlaps these dates.']);
+        }
+
+        unset($data['supporting_document']);
 
         // Format time if provided
         if ($request->filled('start_time')) {
@@ -136,17 +158,41 @@ class WfhRequestController extends Controller
 
         if ($request->hasFile('supporting_document')) {
             $file = $request->file('supporting_document');
-            $path = $file->store('wfh_documents', 'public');
+            $path = $file->store('wfh_documents', 'local');
             $data['supporting_document'] = $path;
         }
 
         $data['employee_id'] = $employee->id;
         $data['status'] = 'pending';
 
-        WfhRequest::create($data);
+        $wfhRequest = WfhRequest::create($data);
+        $wfhRequest->load('employee');
+
+        $auditLogger->record(
+            $request->user(),
+            'wfh_request.submitted',
+            $wfhRequest,
+            'Submitted a Work From Home request.',
+            [
+                'employee' => $employee->first_name.' '.$employee->last_name,
+                'arrangement' => $wfhRequest->request_type,
+                'date_from' => $wfhRequest->date_from->toDateString(),
+                'date_to' => $wfhRequest->date_to->toDateString(),
+                'start_time' => $wfhRequest->start_time,
+                'end_time' => $wfhRequest->end_time,
+                'reason' => $wfhRequest->reason,
+                'supporting_document_uploaded' => $wfhRequest->supporting_document !== null,
+            ],
+            $request,
+        );
+
+        User::query()
+            ->whereIn('role', ['admin', 'supervisor'])
+            ->each(fn (User $user) => $user->notify(new WfhRequestSubmitted($wfhRequest)));
 
         return redirect()->route('wfh.my-requests')
-            ->with('success', 'WFH request submitted successfully.');
+            ->with('success', 'Your WFH request was sent for review.')
+            ->with('submitted_request_id', $wfhRequest->id);
     }
 
     public function show(WfhRequest $wfhRequest): View
@@ -154,6 +200,20 @@ class WfhRequestController extends Controller
         Gate::authorize('view', $wfhRequest);
 
         return view('wfh.show-request', compact('wfhRequest'));
+    }
+
+    public function downloadSupportingDocument(WfhRequest $wfhRequest): StreamedResponse
+    {
+        Gate::authorize('viewDocument', $wfhRequest);
+
+        return $this->downloadDocument($wfhRequest->supporting_document, 'wfh-supporting-document');
+    }
+
+    public function downloadReviewerDocument(WfhRequest $wfhRequest): StreamedResponse
+    {
+        Gate::authorize('viewDocument', $wfhRequest);
+
+        return $this->downloadDocument($wfhRequest->reviewer_document, 'wfh-reviewer-document');
     }
 
     public function approval(): View
@@ -176,7 +236,18 @@ class WfhRequestController extends Controller
         return view('wfh.approval', compact('pendingRequests', 'recentDecisions'));
     }
 
-    public function updateApproval(Request $request, WfhRequest $wfhRequest): RedirectResponse
+    public function review(WfhRequest $wfhRequest): View
+    {
+        Gate::authorize('approve', $wfhRequest);
+
+        abort_unless($wfhRequest->status === 'pending', 404);
+
+        $wfhRequest->load(['employee.user', 'employee.department']);
+
+        return view('wfh.review-request', compact('wfhRequest'));
+    }
+
+    public function updateApproval(Request $request, WfhRequest $wfhRequest, AuditLogger $auditLogger): RedirectResponse
     {
         Gate::authorize('approve', $wfhRequest);
 
@@ -188,6 +259,7 @@ class WfhRequestController extends Controller
         $data = $request->validate([
             'status' => ['required', 'in:approved,rejected'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'reviewer_document' => ['nullable', 'file', 'mimes:pdf,doc,docx,jpg,jpeg,png', 'max:2048'],
         ]);
 
         $approver = $request->user()->employee;
@@ -196,17 +268,53 @@ class WfhRequestController extends Controller
             abort(403, 'An employee profile is required to approve WFH requests.');
         }
 
+        $reviewerDocument = $wfhRequest->reviewer_document;
+
+        if ($request->hasFile('reviewer_document')) {
+            $reviewerDocument = $request->file('reviewer_document')->store('wfh_reviewer_documents', 'local');
+        }
+
         $wfhRequest->update([
             'status' => $data['status'],
             'remarks' => $data['remarks'] ?? null,
+            'reviewer_document' => $reviewerDocument,
             'approver_id' => $approver->id,
             'approved_at' => $data['status'] === 'approved' ? now() : null,
         ]);
+
+        $auditLogger->record(
+            $request->user(),
+            'wfh_request.'.$data['status'],
+            $wfhRequest,
+            $data['status'] === 'approved' ? 'Approved a Work From Home request.' : 'Rejected a Work From Home request.',
+            [
+                'employee' => $wfhRequest->employee->first_name.' '.$wfhRequest->employee->last_name,
+                'previous_status' => 'pending',
+                'new_status' => $data['status'],
+                'date_from' => $wfhRequest->date_from->toDateString(),
+                'date_to' => $wfhRequest->date_to->toDateString(),
+                'decision_note' => $data['remarks'] ?? null,
+                'reviewer_document_uploaded' => $request->hasFile('reviewer_document'),
+            ],
+            $request,
+        );
+
+        $wfhRequest->load('employee.user');
+        $wfhRequest->employee->user?->notify(new WfhRequestReviewed($wfhRequest));
 
         $message = $data['status'] === 'approved'
             ? 'WFH request approved successfully.'
             : 'WFH request was not approved.';
 
         return redirect()->route('wfh.approval')->with('approval_success', $message);
+    }
+
+    private function downloadDocument(?string $path, string $downloadName): StreamedResponse
+    {
+        abort_unless($path && Storage::disk('local')->exists($path), 404);
+
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+
+        return Storage::disk('local')->download($path, $downloadName.($extension ? '.'.$extension : ''));
     }
 }

@@ -28,7 +28,7 @@ class WfhRequestPolicy
      */
     public function create(User $user): bool
     {
-        return false;
+        return $user->role === 'employee' && $user->employee !== null;
     }
 
     /**
@@ -45,6 +45,12 @@ class WfhRequestPolicy
     public function approve(User $user, WfhRequest $wfhRequest): bool
     {
         return in_array($user->role, ['admin', 'supervisor'], true);
+    }
+
+    public function viewDocument(User $user, WfhRequest $wfhRequest): bool
+    {
+        return $user->employee?->id === $wfhRequest->employee_id
+            || in_array($user->role, ['admin', 'supervisor'], true);
     }
 
     /**

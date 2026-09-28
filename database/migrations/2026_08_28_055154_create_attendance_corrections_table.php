@@ -11,17 +11,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-       Schema::create('attendance_corrections', function (Blueprint $table) {
-       $table->id();
-       $table->foreignId('attendance_id')->constrained()->cascadeOnDelete();
-       $table->foreignId('employee_id')->constrained()->cascadeOnDelete();
-       $table->time('requested_time_in')->nullable();
-       $table->time('requested_time_out')->nullable();
-       $table->text('reason');
-       $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
-       $table->foreignId('approver_id')->nullable()->constrained('employees');
-       $table->timestamps();
-});
+        Schema::create('attendance_corrections', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('attendance_id')->constrained('attendance')->cascadeOnDelete();
+            $table->foreignId('employee_id')->constrained()->cascadeOnDelete();
+            $table->time('requested_time_in')->nullable();
+            $table->time('requested_time_out')->nullable();
+            $table->text('reason');
+            $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
+            $table->foreignId('approver_id')->nullable()->constrained('employees');
+            $table->timestamps();
+        });
     }
 
     /**

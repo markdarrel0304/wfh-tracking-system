@@ -30,7 +30,8 @@ use Carbon\Carbon;
 
                     @if ($errors->any())
                         <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                            <p class="font-semibold">Your request could not be submitted.</p>
+                            <p class="font-semibold">Your request was not sent.</p>
+                            <p class="mt-1">Review the highlighted details and try again.</p>
                             <ul class="mt-2 list-inside list-disc space-y-1">
                                 @foreach ($errors->all() as $error)
                                     <li>{{ $error }}</li>
